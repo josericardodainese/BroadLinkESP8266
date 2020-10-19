@@ -53,7 +53,7 @@ void dump(decode_results *results) {
   }
   else if (results->decode_type == PANASONIC) {
     Serial.print("Decoded PANASONIC - Address: ");
-    Serial.print(results->panasonicAddress, HEX);
+    Serial.print(results->address, HEX);
     Serial.print(" Value: ");
   }
   else if (results->decode_type == LG) {
@@ -68,6 +68,10 @@ void dump(decode_results *results) {
   else if (results->decode_type == WHYNTER) {
     Serial.print("Decoded Whynter: ");
   }
+  
+  /***
+   * Show the information on Serial Monitor
+   ***/
   Serial.print(results->value, HEX);
   Serial.print(" (");
   Serial.print(results->bits, DEC);
@@ -90,10 +94,15 @@ void dump(decode_results *results) {
 }
  
 void loop() {
-  //RETORNA NA SERIAL AS INFORMAÇÕES FINAIS SOBRE O COMANDO IR QUE FOI IDENTIFICADO
+  /***
+   * Return the information about IR command identified.
+   ***/
   if (irrecv.decode(&results)) {
     Serial.println(results.value, HEX);
     dump(&results);
-    irrecv.resume(); //RECEBE O PRÓXIMO VALOR
+    /***
+     * Receive the next value.
+     ***/
+    irrecv.resume(); 
   }
 }
