@@ -33,7 +33,8 @@
  ***/
 
 const String HOSTNAME = "DeviceESP8266";
-const char *MQTT_IR_TOPIC = "josericardodainese@gmail.com/ir/change";
+char *MQTT_PREFIX_TOPIC = "josericardodainese@gmail.com/";
+const char *MQTT_IR_TOPIC = strcat(MQTT_PREFIX_TOPIC,"ir/change");
 const char *MQTT_SERVER = "www.maqiatto.com";
 #define MQTT_AUTH true
 #define MQTT_USERNAME "josericardodainese@gmail.com"
@@ -162,7 +163,7 @@ void dump(decode_results *results);
 FS *fileSystem = &LittleFS;
 
 String httpGETRequest(const char *serverName);
-void showResponseData();
+void getRemoteHtml();
 
 /**
  * 
@@ -329,7 +330,7 @@ void loopServer()
  * Aux functions implementations 
  ***/
 
-void showResponseData()
+void getRemoteHtml()
 {
   String openWeatherMapApiKey = "24137916f961924d477b51f4910b830c";
 
@@ -734,6 +735,7 @@ void dump(decode_results *results)
  ***/
 bool checkMqttConnection()
 {
+
   if (!client.connected())
   {
     if (MQTT_AUTH ? client.connect(HOSTNAME.c_str(), MQTT_USERNAME, MQTT_PASSWORD) : client.connect(HOSTNAME.c_str()))
@@ -813,7 +815,7 @@ void setup()
   setupFirebase();
   setupServer();
   setupIRSender();
-  showResponseData();
+  getRemoteHtml();
 }
 
 /**
