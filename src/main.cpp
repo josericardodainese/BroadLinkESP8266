@@ -15,7 +15,7 @@
 #include <ESP8266WebServer.h>
 #include <WiFiClientSecure.h>
 #include <Arduino_JSON.h>
-
+#include <HttpClient.h>
 /***
  * MQTT Import
  ***/
@@ -34,7 +34,7 @@
 
 const String HOSTNAME = "DeviceESP8266";
 char *MQTT_PREFIX_TOPIC = "josericardodainese@gmail.com/";
-const char *MQTT_IR_TOPIC = strcat(MQTT_PREFIX_TOPIC,"ir/change");
+const char *MQTT_IR_TOPIC = strcat(MQTT_PREFIX_TOPIC, "ir/change");
 const char *MQTT_SERVER = "www.maqiatto.com";
 #define MQTT_AUTH true
 #define MQTT_USERNAME "josericardodainese@gmail.com"
@@ -69,6 +69,8 @@ decode_results results;
 int raw_lenght = 68;
 int raw_frequency = 32;
 WiFiClientSecure httpclient;
+const int kNetworkTimeout = 30*1000;
+const int kNetworkDelay = 1000;
 
 /***
  * Raw commands without spaces and hiffes
@@ -128,6 +130,8 @@ const char *password = "19931995";
 const char *www_username = "admin";
 const char *www_password = "esp8266";
 
+String htmlContent;
+
 /***
  * Setup Functions
  ***/
@@ -157,13 +161,15 @@ void mqttCallback(char *topic, byte *payload, unsigned int length);
 void handleRoot();
 void handleIr();
 void handleNotFound();
-String getHtml();
 String readFile(String path);
 void dump(decode_results *results);
-FS *fileSystem = &LittleFS;
-
+JSONVar getDownloadURLRepoFile();
+JSONVar parseToJson(String content);
 String httpGETRequest(const char *serverName);
-void getRemoteHtml();
+String httpFileGet(const char *urlFile);
+String getRemoteHtml();
+
+FS *fileSystem = &LittleFS;
 
 /**
  * 
@@ -172,6 +178,7 @@ void getRemoteHtml();
 
 void setupLittleFS()
 {
+  Serial.println("Executando setupLittleFS()");
   if (!LittleFS.begin())
   {
     Serial.println("An Error has occurred while mounting LittleFS");
@@ -181,6 +188,7 @@ void setupLittleFS()
 
 void setupServer()
 {
+  Serial.println("Executando setupServer()");
   server.on("/", handleRoot);
   server.on("/ir", handleIr);
 
@@ -201,12 +209,14 @@ void setupServer()
 
 void setupLed()
 {
+  Serial.println("Executando setupLed()");
   pinMode(LED_PIN, OUTPUT);
   Serial.println("Estado do led");
 }
 
 void setupOTA()
 {
+  Serial.println("Executando setupOTA()");
   Serial.println("Iniciando...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -250,6 +260,7 @@ void setupOTA()
  * ***/
 void setupIRSender()
 {
+  Serial.println("Executando setupIRSender()");
   irsend.begin();
 }
 
@@ -258,7 +269,7 @@ void setupIRSender()
  * ***/
 void setupWifi()
 {
-
+  Serial.println("Executando setupWifi()");
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(ssid, password);
   Serial.print("\nA tentar ligar ao WiFi");
@@ -272,7 +283,7 @@ void setupWifi()
 
 void setupFirebase()
 {
-  Serial.println("Setup Firebase Initialized.");
+  Serial.println("Executando setupFirebase()");
 }
 
 /**
@@ -330,94 +341,134 @@ void loopServer()
  * Aux functions implementations 
  ***/
 
-void getRemoteHtml()
+JSONVar getDownloadURLRepoFile()
 {
-  String openWeatherMapApiKey = "24137916f961924d477b51f4910b830c";
+  Serial.println("Executando getDownloadURLRepoFile()");
+  String ulrFull = "https://api.github.com/repos/josericardodainese/BroadLinkESP8266/contents/src/data/index.html?access_token=bfc103ae0ea1ccb9996bd66a45e8ffda8f485692";
 
-  String city = "Mogi Guacu";
-  String countryCode = "BR";
+  JSONVar jsonParsed = parseToJson(httpGETRequest(ulrFull.c_str()));
+  return jsonParsed;
+}
 
-  String serverPath = "http://api.openweathermap.org/data/2.5/weather?q=" + city + "," + countryCode + "&APPID=" + openWeatherMapApiKey;
+JSONVar parseToJson(String content)
+{
+  Serial.println("Executando parseToJson()");
+  JSONVar responseJson = JSON.parse(content);
 
-
-  JSONVar myObject = JSON.parse(httpGETRequest(serverPath.c_str()));
-  // JSON.typeof(jsonVar) can be used to get the type of the var
-
-  if (JSON.typeof(myObject) == "undefined")
+  if (JSON.typeof(responseJson) == "undefined")
   {
-    Serial.println("Parsing input failed!");
-    return;
+    return "Parsing Url Repo Failed!";
   }
 
-  Serial.print("JSON object = ");
-  Serial.println(myObject);
+  return responseJson;
+}
 
+String getRemoteHtml()
+{
+  Serial.println("Executando getRemoteHtml()");
+  JSONVar jsonArquivo = getDownloadURLRepoFile();
+  String download_url = JSON.stringify(jsonArquivo["download_url"]);
 
-  Serial.println();
-  Serial.println();
-  Serial.println();
+  Serial.print("download_url => ");
+  Serial.println(download_url);
 
-  Serial.print("Weather For: ");
-  Serial.println(myObject["name"]);
+  String html = httpFileGet(download_url.c_str());
 
-  Serial.print("Weather Main: ");
-  Serial.println(myObject["weather"][0]["main"]);
+  Serial.print("html => ");
+  Serial.println(html);
 
-  Serial.print("Weather Description: ");
-  Serial.println(myObject["weather"][0]["description"]);
+  return html;
+}
 
-  Serial.print("Weather Icon: ");
-  Serial.println(myObject["weather"][0]["icon"]);
-  Serial.print("http://openweathermap.org/img/w/");
-  Serial.print(myObject["weather"][0]["icon"]);
-  Serial.print(".png");
-  // http://openweathermap.org/img/w/02n.png
+String httpFileGet(const char *urlFile)
+{
+  Serial.println("Executando httpFileGet()");
+  HttpClient http(httpclient);
 
-  Serial.print("Temperature: ");
-  Serial.println(myObject["main"]["temp"]);
-
-  Serial.print("Pressure: ");
-  Serial.println(myObject["main"]["pressure"]);
-
-
-  Serial.print("Humidity: ");
-  Serial.println(myObject["main"]["humidity"]);
-
-  Serial.print("Wind Speed: ");
-  Serial.println(myObject["wind"]["speed"]);
+  /***
+  * Make a HTTP request
+  ***/
+  int status = http.get(urlFile, "");
+  
+  if (status == 0)
+  {
+    Serial.println("Request for Download File HTML OK");
+    int err = http.responseStatusCode();
+    Serial.printf("HTTP response status code for call %s", err);
+    if (err >= 0)
+    {
+      err = http.skipResponseHeaders();
+      Serial.printf("HTTP skipResponseHeaders for call %s", err);
+      if (err >= 0)
+      {
+        int bodyLen = http.contentLength();
+        Serial.print("Content length is: ");
+        Serial.println(bodyLen);
+        Serial.println();
+        Serial.println("Body returned follows:");
+        /***
+        * Now we've got to the body, so we can print it out
+        ***/
+        // return http.readString();
+      }
+    }
+  }
 }
 
 String httpGETRequest(const char *serverName)
 {
-  HTTPClient http;
+  Serial.println("Executando httpGETRequest()");
+  std::unique_ptr<BearSSL::WiFiClientSecure> httpclient(new BearSSL::WiFiClientSecure);
+  httpclient->setFingerprint("DF:B2:29:C6:A6:38:1A:59:9D:C9:AD:92:2D:26:F5:3C:83:8F:A5:87");
 
-  // Your IP address with path or Domain name with URL path
-  http.begin(serverName);
+  HTTPClient https;
+  // https.setAuthorization("DF:B2:29:C6:A6:38:1A:59:9D:C9:AD:92:2D:26:F5:3C:83:8F:A5:87");
+  https.setAuthorization("josericardodainese", "bfc103ae0ea1ccb9996bd66a45e8ffda8f485692");
+  https.begin(*httpclient, "https://api.github.com");
 
-  // Send HTTP POST request
-  int httpResponseCode = http.GET();
-
-  String payload = "{}";
-
-  if (httpResponseCode > 0)
+  if (https.begin(*httpclient, serverName))
   {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-    payload = http.getString();
+
+    Serial.print("[HTTPS] Start GET...\n");
+    /***
+    * Start Cnnection And Send HTTP Header
+    ***/
+    int httpCode = https.GET();
+    /***
+    * httpCode will be negative on error
+    ***/
+    if (httpCode > 0)
+    {
+      /***
+      * HTTP header has been send and Server response header has been handled
+      ***/
+      Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
+      /***
+      * File found at server
+      ***/
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      {
+        String payload = https.getString();
+        return payload;
+      }
+    }
+    else
+    {
+      Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
+    }
+
+    https.end();
   }
   else
   {
-    Serial.print("Error code: ");
-    Serial.println(httpResponseCode);
+    Serial.printf("[HTTPS] Unable to connect\n");
   }
-  // Free resources
-  http.end();
-
-  return payload;
+  delay(10000);
 }
 
 void sendIRCommand(uint16_t CMD[67])
 {
+  Serial.println("Executando sendIRCommand()");
   irsend.sendRaw(CMD, raw_lenght, raw_frequency);
   Serial.println("Comando enviado");
   Serial.println();
@@ -431,7 +482,7 @@ void handleRoot()
   //   return server.requestAuthentication();
   // }
 
-  server.send(200, "text/html", getHtml());
+  server.send(200, "text/html", "htmlContent");
 }
 
 void handleIr()
@@ -516,6 +567,7 @@ void handleIr()
 
 void handleNotFound()
 {
+  Serial.println("Executando handleNotFound()");
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -529,110 +581,12 @@ void handleNotFound()
   server.send(404, "text/plain", message);
 }
 
-String getHtml()
-{
-  const char *htmlMessage = R"(
-<html>
-<head>
-  <title>IR Control</title>
-</head>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
-  integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<body>
-  <nav class="navbar navbar-expand-lg navbar-light bg-light">
-    <a class="navbar-brand" href="#">
-      <img src="https://www.blueletro.com/media/catalog/category/azamerica.jpg" height="30" alt="" loading="lazy">
-    </a>
-    <a class="navbar-brand" href="#">TV</a>
-    <ul class="navbar-nav mr-auto" style="display:flex; flex-direction: row;">
-      <li class="nav-item">
-        <a class="nav-link" href="ir?vol_mais">
-          <button class="btn btn-outline-success my-2 my-sm-0">Vol +</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?vol_menos">
-          <button class="btn btn-outline-success my-2 my-sm-0">Volume -</button>
-        </a>
-      </li>
-    </ul>
-    <a class="nav-link" href="ir?liga_desliga">
-      <button class="btn btn-outline-success my-2 my-sm-0">Ligar/Desligar</button>
-    </a>
-  </nav>
-
-  <div class="container">
-    <div class="d-flex align-items-center">
-      <div>
-        <a class="nav-link" href="ir?sbt">
-          <img width="50" src="https://logospng.org/wp-content/uploads/sbt.png" class="rounded" alt="SBT">
-        </a>
-      </div>
-      <div>
-        <a class="nav-link" href="ir?tlc">
-          <img width="50" src="https://catwerk.com/wp-content/uploads/tlc.png" class="rounded" alt="TLC">
-        </a>
-      </div>
-      <div>
-        <a class="nav-link" href="ir?globo">
-          <img width="50" src="https://pbs.twimg.com/profile_images/585934109664481281/IZCvb1oW_400x400.png"
-            class="rounded" alt="Globo">
-        </a>
-      </div>
-      <div>
-        <a class="nav-link" href="ir?comedy">
-          <img width="50" src="https://fastly.4sqi.net/img/user/130x130/XYECDNTZMG31SWL0.png" class="rounded"
-            alt="Comedy Central">
-        </a>
-      </div>
-    </div>
-  </div>
-  <nav class="navbar navbar-expand-lg navbar-light bg-light">
-    <ul class="navbar-nav mr-auto" style="display:flex; flex-direction: row;">
-      <li class="nav-item">
-        <a class="nav-link" href="ir?esquerda">
-          <button class="btn btn-outline-success my-2 my-sm-0">Esq</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?direita">
-          <button class="btn btn-outline-success my-2 my-sm-0">Dir</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?cima">
-          <button class="btn btn-outline-success my-2 my-sm-0">Cima</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?baixo">
-          <button class="btn btn-outline-success my-2 my-sm-0">Baixo</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?recal">
-          <button class="btn btn-outline-success my-2 my-sm-0">Ultimos</button>&nbsp;
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ir?menu">
-          <button class="btn btn-outline-success my-2 my-sm-0">Menu</button>&nbsp;
-        </a>
-      </li>
-    </ul>
-  </nav>
-</body>
-)";
-
-  return htmlMessage;
-}
-
 /***
  * MQTT Message Callback
  *  ***/
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
+  Serial.println("Executando mqttCallback()");
   String payloadStr = "";
   for (int i = 0; i < int(length); i++)
   {
@@ -656,6 +610,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
  ***/
 void dump(decode_results *results)
 {
+  Serial.println("Executando dump()");
   int count = results->rawlen;
 
   if (results->decode_type == UNKNOWN)
@@ -735,7 +690,7 @@ void dump(decode_results *results)
  ***/
 bool checkMqttConnection()
 {
-
+  Serial.println("Executando checkMqttConnection()");
   if (!client.connected())
   {
     if (MQTT_AUTH ? client.connect(HOSTNAME.c_str(), MQTT_USERNAME, MQTT_PASSWORD) : client.connect(HOSTNAME.c_str()))
@@ -755,6 +710,7 @@ bool checkMqttConnection()
 
 String uint64ToString(uint64_t input)
 {
+  Serial.println("Executando uint64ToString()");
   String result = "";
   uint8_t base = 10;
 
@@ -774,6 +730,7 @@ String uint64ToString(uint64_t input)
 
 String readFile(String path)
 {
+  Serial.println("Executando readFile()");
   LittleFS.remove(F("/index.html"));
   File rFile = LittleFS.open(F("/index.html"), "r");
   if (!rFile)
@@ -794,6 +751,7 @@ String readFile(String path)
 
 void setup()
 {
+  Serial.println("Executando setup()");
   /***
    * Initialize the Serial monitor.
    ***/
@@ -813,9 +771,10 @@ void setup()
   client.setCallback(mqttCallback);
   setupLittleFS();
   setupFirebase();
+
+  htmlContent = getRemoteHtml();
   setupServer();
   setupIRSender();
-  getRemoteHtml();
 }
 
 /**
