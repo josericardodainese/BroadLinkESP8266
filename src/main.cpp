@@ -16,6 +16,8 @@
 #include <WiFiClientSecure.h>
 #include <Arduino_JSON.h>
 #include <HttpClient.h>
+#include <Base64.h>
+
 /***
  * MQTT Import
  ***/
@@ -69,7 +71,7 @@ decode_results results;
 int raw_lenght = 68;
 int raw_frequency = 32;
 WiFiClientSecure httpclient;
-const int kNetworkTimeout = 30*1000;
+const int kNetworkTimeout = 30 * 1000;
 const int kNetworkDelay = 1000;
 
 /***
@@ -168,8 +170,12 @@ JSONVar parseToJson(String content);
 String httpGETRequest(const char *serverName);
 String httpFileGet(const char *urlFile);
 String getRemoteHtml();
+void logPressButton(String button);
+void downloadFile(String urlFile);
 
 FS *fileSystem = &LittleFS;
+
+int input2Len = 0;
 
 /**
  * 
@@ -217,7 +223,6 @@ void setupLed()
 void setupOTA()
 {
   Serial.println("Executando setupOTA()");
-  Serial.println("Iniciando...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   while (WiFi.waitForConnectResult() != WL_CONNECTED)
@@ -231,7 +236,7 @@ void setupOTA()
     Serial.println("Inicio...");
   });
   ArduinoOTA.onEnd([]() {
-    Serial.println("nFim!");
+    Serial.println("Fim!");
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     Serial.printf("Progresso: %u%%r", (progress / (total / 100)));
@@ -272,13 +277,13 @@ void setupWifi()
   Serial.println("Executando setupWifi()");
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(ssid, password);
-  Serial.print("\nA tentar ligar ao WiFi");
+  Serial.println("A tentar ligar ao WiFi");
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
     Serial.print(".");
   }
-  Serial.println(String("\nLigado a rede: (") + ssid + ")");
+  Serial.println(String("Ligado a rede: (") + ssid + ")");
 }
 
 void setupFirebase()
@@ -367,17 +372,12 @@ String getRemoteHtml()
 {
   Serial.println("Executando getRemoteHtml()");
   JSONVar jsonArquivo = getDownloadURLRepoFile();
-  String download_url = JSON.stringify(jsonArquivo["download_url"]);
+  String urlFile = JSON.stringify(jsonArquivo["download_url"]);
+  Serial.println("URL Arquivo Antes de Chamar o download");
+  Serial.println(urlFile.c_str());
+  downloadFile(urlFile);
 
-  Serial.print("download_url => ");
-  Serial.println(download_url);
-
-  String html = httpFileGet(download_url.c_str());
-
-  Serial.print("html => ");
-  Serial.println(html);
-
-  return html;
+  return "<h1>Teste</h1>";
 }
 
 String httpFileGet(const char *urlFile)
@@ -389,7 +389,7 @@ String httpFileGet(const char *urlFile)
   * Make a HTTP request
   ***/
   int status = http.get(urlFile, "");
-  
+
   if (status == 0)
   {
     Serial.println("Request for Download File HTML OK");
@@ -482,7 +482,7 @@ void handleRoot()
   //   return server.requestAuthentication();
   // }
 
-  server.send(200, "text/html", "htmlContent");
+  server.send(200, "text/html", htmlContent);
 }
 
 void handleIr()
@@ -491,74 +491,40 @@ void handleIr()
   {
     if (server.argName(i) == "liga_desliga")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Liga Desliga");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
-
+      logPressButton("Liga Desliga");
       sendIRCommand(LD);
     }
     else if (server.argName(i) == "vol_mais")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Volume Mais");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
+      logPressButton("Volume Mais");
       sendIRCommand(VOL_MAIS);
     }
     else if (server.argName(i) == "vol_menos")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Volume Menos");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
+      logPressButton("Volume Menos");
       sendIRCommand(VOL_MENOS);
     }
     else if (server.argName(i) == "sbt")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Mudando Para SBT");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
-      //0426
+      logPressButton("Mudando Para SBT");
       sendIRCommand(DIGIT_4);
       sendIRCommand(DIGIT_2);
       sendIRCommand(DIGIT_6);
     }
     else if (server.argName(i) == "comedy")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Mudando Para Comedy Central");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
-
-      //0092
+      logPressButton("Mudando Para Comedy Central");
       sendIRCommand(DIGIT_9);
       sendIRCommand(DIGIT_2);
     }
     else if (server.argName(i) == "baixo")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Baixo");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
-
+      logPressButton("Baixo");
       sendIRCommand(BAIXO);
     }
     else if (server.argName(i) == "cima")
     {
-      Serial.println();
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println("Cima");
-      Serial.println("-----------BOTAO PRESSIONADO-----------");
-      Serial.println();
-
+      logPressButton("Cima");
       sendIRCommand(CIMA);
     }
   }
@@ -690,7 +656,6 @@ void dump(decode_results *results)
  ***/
 bool checkMqttConnection()
 {
-  Serial.println("Executando checkMqttConnection()");
   if (!client.connected())
   {
     if (MQTT_AUTH ? client.connect(HOSTNAME.c_str(), MQTT_USERNAME, MQTT_PASSWORD) : client.connect(HOSTNAME.c_str()))
@@ -728,6 +693,64 @@ String uint64ToString(uint64_t input)
   return result;
 }
 
+void downloadFile(String urlFile)
+{
+
+  Serial.println("Executando httpGETRequest()");
+  std::unique_ptr<BearSSL::WiFiClientSecure> httpclient(new BearSSL::WiFiClientSecure);
+  httpclient->setFingerprint("DF:B2:29:C6:A6:38:1A:59:9D:C9:AD:92:2D:26:F5:3C:83:8F:A5:87");
+
+  HTTPClient https;
+  // https.setAuthorization("DF:B2:29:C6:A6:38:1A:59:9D:C9:AD:92:2D:26:F5:3C:83:8F:A5:87");
+  https.setAuthorization("josericardodainese", "bfc103ae0ea1ccb9996bd66a45e8ffda8f485692");
+  https.begin(*httpclient, "https://api.github.com");
+
+  if (https.begin(*httpclient, "https://raw.githubusercontent.com/josericardodainese/BroadLinkESP8266/master/src/data/index.html?token=AAZC2F2PMPGXPFD7MGO66YC7TWYEM"))
+  {
+
+    Serial.print("[HTTPS] Start GET...\n");
+    /***
+    * Start Cnnection And Send HTTP Header
+    ***/
+    int httpCode = https.GET();
+    /***
+    * httpCode will be negative on error
+    ***/
+    if (httpCode > 0)
+    {
+      /***
+      * HTTP header has been send and Server response header has been handled
+      ***/
+      Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
+      /***
+      * File found at server
+      ***/
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      {
+        File f = LittleFS.open("/index.html", "w");
+        if (f)
+        {
+          Serial.println("Arquivo index.html Aberto");
+          https.writeToStream(&f);
+        }
+      }
+    }
+    else
+    {
+      Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
+    }
+
+    https.end();
+  }
+  else
+  {
+    Serial.printf("[HTTPS] Unable to connect\n");
+  }
+
+  readFile("/index.html");
+  delay(10000);
+}
+
 String readFile(String path)
 {
   Serial.println("Executando readFile()");
@@ -742,6 +765,13 @@ String readFile(String path)
   Serial.println(content);
   rFile.close();
   return content;
+}
+
+void logPressButton(String button)
+{
+  Serial.println();
+  Serial.println(button);
+  Serial.println();
 }
 
 /**
@@ -773,6 +803,7 @@ void setup()
   setupFirebase();
 
   htmlContent = getRemoteHtml();
+  Serial.println(htmlContent);
   setupServer();
   setupIRSender();
 }
